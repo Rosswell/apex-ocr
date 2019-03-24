@@ -1,5 +1,6 @@
 import csv
 import re
+import os
 import winsound
 from collections import Counter, defaultdict
 from datetime import datetime
@@ -10,18 +11,20 @@ import numpy
 import pytesseract
 from PIL import ImageGrab
 
-cols = ['Damage Done', 'Datetime', 'Killed Champion', 'Kills', 'Respawned Ally', 'Revived Ally', 'Squad Placed',
-        'Time Survived']
+stats_headers = ['Datetime', 'Damage Done', 'Kills', 'Time Survived', 'Respawned Allies', 'Revived Allies',
+                 'Killed Champion', 'Squad Placed']
 replacements = [('x', ''), ('d', '0'), ('D', '0'), ('o', '0'), ('O', '0'), ('!', '1'), ('l', '1'), ('I', '1'),
                 ('}', ')'), ('{', '('), (']', ')'), ('[', '('), ('$', ''), ('\'', ''), ('\"', '')]
 tesseract_config = '-c tessedit_char_whitelist=()#01234567890ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
-timesurvived_matcher = re.compile(r'timesurvived.([^\)]+)\)')
-kills_matcher = re.compile(r'kills.([^\)]+)\)')
-killedchampion_matcher = re.compile(r'killedchampion.([^\)]+)\)')
-damagedone_matcher = re.compile(r'damagedone.([^\)]+)\)')
-reviveally_matcher = re.compile(r'reviveally.([^\)]+)\)')
-respawnally_matcher = re.compile(r'respawnally.([^\)]+)\)')
-squadplaced_matcher = re.compile(r'#([0-9]{1,2})')
+headers_matcher_map = {
+    'Damage Done': re.compile(r'damagedone.([^\)]+)\)'),
+    'Killed Champion': re.compile(r'killedchampion.([^\)]+)\)'),
+    'Kills': re.compile(r'kills.([^\)]+)\)'),
+    'Respawned Ally': re.compile(r'respawnally.([^\)]+)\)'),
+    'Revived Ally': re.compile(r'reviveally.([^\)]+)\)'),
+    'Squad Placed': re.compile(r'#([0-9]{1,2})'),
+    'Time Survived': re.compile(r'timesurvived.([^\)]+)\)')
+}
 
 
 def process_squad_placed(text_list):
@@ -54,6 +57,25 @@ def replace_nondigits(parsed_string):
             continue
     return return_list
 
+
+def write_to_file(filename, data):
+    value_list = [data[header] for header in stats_headers]
+    filepath = os.path.join(os.getcwd(), filename)
+    if os.path.isfile(filepath):
+        # if file already exists, just append the game data
+        write_method = 'a'
+        rows_to_write = [value_list]
+    else:
+        # if file doesn't exist, create it, write header row, then game data
+        write_method = 'w'
+        rows_to_write = [stats_headers, value_list]
+
+    with open(filename, write_method, newline='') as f:
+        writer = csv.writer(f)
+        for row in rows_to_write:
+            writer.writerow(row)
+
+
 if __name__ == '__main__':
     # top half of a 1920x1080 screen
     mon = (0, 0, 1920, 1080 / 2)
@@ -83,13 +105,14 @@ if __name__ == '__main__':
                 text = pytesseract.image_to_string(img, config=tesseract_config)
                 text = text.replace("\n", "").replace(" ", "").lower()
 
-                matches['Time Survived'].extend(timesurvived_matcher.findall(text))
-                matches['Kills'].extend(replace_nondigits(kills_matcher.findall(text)))
-                matches['Killed Champion'].extend(replace_nondigits(killedchampion_matcher.findall(text)))
-                matches['Damage Done'].extend(replace_nondigits(damagedone_matcher.findall(text)))
-                matches['Revived Ally'].extend(replace_nondigits(reviveally_matcher.findall(text)))
-                matches['Respawned Ally'].extend(replace_nondigits(respawnally_matcher.findall(text)))
-                matches['Squad Placed'].extend(process_squad_placed(squadplaced_matcher.findall(text)))
+                for header, matcher in headers_matcher_map.items():
+                    parsed_text = matcher.findall(text)
+                    if header == 'Squad Placed':
+                        matches[header].extend(process_squad_placed(parsed_text))
+                    elif header == 'Time Survived':
+                        matches[header].extend(parsed_text)
+                    else:
+                        matches[header].extend(replace_nondigits(parsed_text))
 
             for k, v in matches.items():
                 counts = Counter(v)
@@ -108,8 +131,6 @@ if __name__ == '__main__':
             pprint(mode_interpretation)
 
             # writing to local file
-            with open('stats.csv', "a", newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow([mode_interpretation[col] for col in cols])
+            write_to_file('stats.csv', mode_interpretation)
 
             print('Watching screen...')
