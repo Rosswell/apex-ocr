@@ -1,33 +1,43 @@
 import csv
-import re
 import os
+import re
 import winsound
 from collections import Counter, defaultdict
 from datetime import datetime
-from pprint import pprint
+from pprint import pprint, pformat
 
 import cv2
 import numpy
 import pytesseract
 from PIL import ImageGrab
 
+
+## CONFIGURABLE VARIABLES
+# name of stats file - must be in same dir as this file
+stats_file = 'stats.csv'
+# top half of a 1920x1080 monitor
+mon = (0, 0, 1920, 1080 / 2)
+
+##
 stats_headers = ['Datetime', 'Damage Done', 'Kills', 'Time Survived', 'Respawned Allies', 'Revived Allies',
                  'Killed Champion', 'Squad Placed']
 replacements = [('x', ''), ('d', '0'), ('D', '0'), ('o', '0'), ('O', '0'), ('!', '1'), ('l', '1'), ('I', '1'),
                 ('}', ')'), ('{', '('), (']', ')'), ('[', '('), ('$', ''), ('\'', ''), ('\"', '')]
+# This doesn't seem to actually be doing anything, but leaving it in because it's working and I'm scared to change it
 tesseract_config = '-c tessedit_char_whitelist=()#01234567890ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
 headers_matcher_map = {
     'Damage Done': re.compile(r'damagedone.([^\)]+)\)'),
     'Killed Champion': re.compile(r'killedchampion.([^\)]+)\)'),
     'Kills': re.compile(r'kills.([^\)]+)\)'),
-    'Respawned Ally': re.compile(r'respawnally.([^\)]+)\)'),
-    'Revived Ally': re.compile(r'reviveally.([^\)]+)\)'),
+    'Respawned Allies': re.compile(r'respawnally.([^\)]+)\)'),
+    'Revived Allies': re.compile(r'reviveally.([^\)]+)\)'),
     'Squad Placed': re.compile(r'#([0-9]{1,2})'),
     'Time Survived': re.compile(r'timesurvived.([^\)]+)\)')
 }
 
 
 def process_squad_placed(text_list):
+    # for deciphering single-digit squad placement from multi-digit squad placement
     squad_placed_list = []
     for text in text_list:
         try:
@@ -39,7 +49,7 @@ def process_squad_placed(text_list):
     return squad_placed_list
 
 
-def preprocess(img):
+def preprocess_image(img):
     img = img.convert('L')
     img = numpy.array(img)
     img = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
@@ -47,6 +57,7 @@ def preprocess(img):
 
 
 def replace_nondigits(parsed_string):
+    # making sure the fields that should be numeric are numeric
     return_list = []
     for s in parsed_string:
         for old, new in replacements:
@@ -62,7 +73,7 @@ def write_to_file(filename, data):
     value_list = [data[header] for header in stats_headers]
     filepath = os.path.join(os.getcwd(), filename)
     if os.path.isfile(filepath):
-        # if file already exists, just append the game data
+        # if a stats file already exists, just append the game data
         write_method = 'a'
         rows_to_write = [value_list]
     else:
@@ -76,32 +87,34 @@ def write_to_file(filename, data):
             writer.writerow(row)
 
 
-if __name__ == '__main__':
-    # top half of a 1920x1080 screen
-    mon = (0, 0, 1920, 1080 / 2)
+def log_and_beep(print_text, beep_freq):
+    pprint('[{}] {}'.format(datetime.now(), print_text))
+    if beep_freq:
+        winsound.Beep(beep_freq, 500)
 
+
+if __name__ == '__main__':
     print('Watching screen...')
     while True:
-
-        img = preprocess(ImageGrab.grab(bbox=mon))
+        # continuously grab screenshots and interpret them to identify the match summary screen
+        img = preprocess_image(ImageGrab.grab(bbox=mon))
         text = pytesseract.image_to_string(img, config=tesseract_config)
         text = text.replace("\n", "").replace(" ", "").lower()
 
         if 'breakdown' in text or 'summary' in text:
-            print('[{}] Match Summary Screen Detected. '.format(datetime.now()))
-            winsound.Beep(2000, 500)
+            log_and_beep('Match Summary screen detected.', 2000)
 
             # takes 20 duplicate images immediately to get the most common (mode) interpretation later. should take ~2 secs
             dup_images = [ImageGrab.grab(bbox=mon) for _ in range(20)]
-            print('[{}] Finished Taking Backup screengrabs. Processing'.format(datetime.now()))
-            winsound.Beep(1500, 500)
 
             mode_interpretation = defaultdict(None)
             mode_interpretation['Datetime'] = datetime.now()
             matches = defaultdict(list)
 
+            log_and_beep('Finished taking backup screengrabs. Processing images -> text', 1500)
+            # OCR for all the images captured, then assign interpretation to the associated stat
             for image in dup_images:
-                img = preprocess(image)
+                img = preprocess_image(image)
                 text = pytesseract.image_to_string(img, config=tesseract_config)
                 text = text.replace("\n", "").replace(" ", "").lower()
 
@@ -114,23 +127,18 @@ if __name__ == '__main__':
                     else:
                         matches[header].extend(replace_nondigits(parsed_text))
 
+            # for each of the 21 images, find the most common OCR text interpretation for each stat. If there are no
+            # available interpretations of the stat, assign the value 'Not Captured' instead
             for k, v in matches.items():
                 counts = Counter(v)
                 most_common = counts.most_common(1)
                 if len(most_common) > 0:
                     mode_interpretation[k] = most_common[0][0]
                 else:
-                    mode_interpretation[k] = most_common
-
-            for k, v in mode_interpretation.items():
-                if mode_interpretation[k] is None or (
-                    isinstance(mode_interpretation[k], list) and len(mode_interpretation[k]) < 1):
                     mode_interpretation[k] = 'Not Captured'
 
-            print('[{}] Finished Processing.'.format(datetime.now()))
-            pprint(mode_interpretation)
+            log_and_beep('Finished processing images. Image interpretations:\n{}'.format(pformat(dict(mode_interpretation))), None)
 
             # writing to local file
-            write_to_file('stats.csv', mode_interpretation)
-
-            print('Watching screen...')
+            write_to_file(stats_file, mode_interpretation)
+            log_and_beep('Finished writing interpretations to {} file.\nWatching screen...'.format(stats_file), None)
