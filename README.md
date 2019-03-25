@@ -1,7 +1,12 @@
-# OCR stat tracking for Apex Legends
+# OCR Stat Tracking for Apex Legends
+
+## Requirements
+[requirements]: #requirements
+* Python >= 3.6
+* Apex Legends
 
 ## Installation
-
+[installation]: #installation
 ```
 $ git clone git@github.com:Rosswell/apex-stats-ocr.git
 $ cd apex-stats-ocr
@@ -9,6 +14,7 @@ $ pip install -r requirements.txt --user
 ```
 
 ## Configuration
+[configuration]: #configuration
 
 1. Change the name of the csv file to your liking
 2. Adjust the `stats_file` variable, if necessary. `stats_file` is the name of the file you'd like to write stats to, 
@@ -18,7 +24,8 @@ of your monitor, because image processing takes less time for smaller images, an
 are on the top half. Thus, the `mon` variable for a `1920x1080` monitor should be `(0, 0, 1920, 1080 / 2)` 
 (which is the default value). 
 
-## Running 
+## Usage
+[usage]: #usage
 
 **NOTE:** You *must* run Apex Legends in windowed mode for this to work. This is honestly just because I couldn't 
 figure out how to capture full screen mode, and Bordered Windowless is good enough.
@@ -37,7 +44,15 @@ during my testing, YMMV). The OCR processing happens subsequently, and successfu
 by a console message.
 
 ## Contributing
+[contributing]: #contributing
 
 I legit have no idea what I'm going when it comes to OCR, so if you can get a more consistent rate of interpretation of 
 the screen, please go ahead and submit a PR. Also just generally I don't anticipate many people using this, so if you 
 have any other contributions in mind, do the same, as this is currently very rough.
+
+## License
+[license]: #license
+
+Apex-ocr is distributed under the terms of MIT license.
+
+See [LICENSE](LICENSE) for details.
