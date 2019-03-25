@@ -4,6 +4,7 @@
 [requirements]: #requirements
 * Python >= 3.6
 * Apex Legends
+* [Tesseract](https://github.com/tesseract-ocr/tesseract/wiki)
 
 ## Installation
 [installation]: #installation
