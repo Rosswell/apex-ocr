@@ -1,16 +1,16 @@
 import csv
 import os
-import re
+import regex
 import winsound
 from collections import Counter, defaultdict
 from datetime import datetime
 from pprint import pprint, pformat
 
+import time
 import cv2
 import numpy
 import pytesseract
-from PIL import ImageGrab
-
+from PIL import ImageGrab, Image
 
 ## CONFIGURABLE VARIABLES
 # name of stats file - must be in same dir as this file
@@ -24,15 +24,15 @@ stats_headers = ['Datetime', 'Damage Done', 'Kills', 'Time Survived', 'Respawned
 replacements = [('x', ''), ('d', '0'), ('D', '0'), ('o', '0'), ('O', '0'), ('!', '1'), ('l', '1'), ('I', '1'),
                 ('}', ')'), ('{', '('), (']', ')'), ('[', '('), ('$', ''), ('\'', ''), ('\"', '')]
 # This doesn't seem to actually be doing anything, but leaving it in because it's working and I'm scared to change it
-tesseract_config = '-c tessedit_char_whitelist=()#01234567890ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+tesseract_config = '-c tessedit_char_whitelist=()#01234567890ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz --psm 11'
 headers_matcher_map = {
-    'Damage Done': re.compile(r'damagedone.([^\)]+)\)'),
-    'Killed Champion': re.compile(r'killedchampion.([^\)]+)\)'),
-    'Kills': re.compile(r'kills.([^\)]+)\)'),
-    'Respawned Allies': re.compile(r'respawnally.([^\)]+)\)'),
-    'Revived Allies': re.compile(r'reviveally.([^\)]+)\)'),
-    'Squad Placed': re.compile(r'#([0-9]{1,2})'),
-    'Time Survived': re.compile(r'timesurvived.([^\)]+)\)')
+    'Damage Done': regex.compile('(?:damagedone\(){e<=2}(.*?)(?:\]|\))'),
+    'Killed Champion': regex.compile('(?:killedchampion\(){e<=2}(.*?)(?:\]|\))'),
+    'Kills': regex.compile('(?:kills\(){e<=1}(.*?)(?:\]|\))'),
+    'Respawned Allies': regex.compile('(?:respawnally\(){e<=2}(.*?)(?:\]|\))'),
+    'Revived Allies': regex.compile('(?:reviveally\(){e<=2}(.*?)(?:\]|\))'),
+    'Squad Placed': regex.compile('#([0-9]{1,2})'),
+    'Time Survived': regex.compile('(?:timesurvived\(){e<=2}(.*?)(?:\]|\))')
 }
 
 
@@ -41,19 +41,26 @@ def process_squad_placed(text_list):
     squad_placed_list = []
     for text in text_list:
         try:
-            if int(text[0]) > 1:
+            numeric_place = int(text)
+            if numeric_place == 2 or numeric_place == 20:
+                squad_placed_list.append(20)
+            elif  numeric_place == 1 or numeric_place == 10:
+                squad_placed_list.append(10)
+            elif numeric_place > 20:
                 squad_placed_list.append(int(text[0]))
-            squad_placed_list.append(int(text))
+            else:
+                squad_placed_list.append(numeric_place)
         except:
             squad_placed_list.append(0)
     return squad_placed_list
 
 
 def preprocess_image(img):
-    img = img.convert('L')
-    img = numpy.array(img)
-    img = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
-    return cv2.resize(img, (0, 0), fx=4, fy=4)
+    img = img.convert('RGB')
+    opencv_img = cv2.cvtColor(numpy.array(img), cv2.COLOR_RGB2GRAY)
+    opencv_thr_img = cv2.threshold(opencv_img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+    opencv_blur_img = cv2.GaussianBlur(opencv_thr_img, (3, 3), 0)
+    return opencv_blur_img
 
 
 def replace_nondigits(parsed_string):
@@ -102,6 +109,7 @@ if __name__ == '__main__':
         text = text.replace("\n", "").replace(" ", "").lower()
 
         if 'breakdown' in text or 'summary' in text:
+            time.sleep(1)
             log_and_beep('Match Summary screen detected.', 2000)
 
             # takes 20 duplicate images immediately to get the most common (mode) interpretation later. should take ~2 secs
@@ -118,26 +126,30 @@ if __name__ == '__main__':
                 text = pytesseract.image_to_string(img, config=tesseract_config)
                 text = text.replace("\n", "").replace(" ", "").lower()
 
+                print(text)
                 for header, matcher in headers_matcher_map.items():
-                    parsed_text = matcher.findall(text)
                     if header == 'Squad Placed':
-                        matches[header].extend(process_squad_placed(parsed_text))
+                        parsed_text = process_squad_placed(matcher.findall(text))
                     elif header == 'Time Survived':
-                        matches[header].extend(parsed_text)
+                        parsed_text = matcher.findall(text)
                     else:
-                        matches[header].extend(replace_nondigits(parsed_text))
+                        parsed_text = replace_nondigits(matcher.findall(text))
+                    matches[header].extend(parsed_text)
 
             # for each of the 21 images, find the most common OCR text interpretation for each stat. If there are no
             # available interpretations of the stat, assign the value 'Not Captured' instead
             for k, v in matches.items():
                 counts = Counter(v)
                 most_common = counts.most_common(1)
+                print(k, counts)
                 if len(most_common) > 0:
                     mode_interpretation[k] = most_common[0][0]
                 else:
                     mode_interpretation[k] = 'Not Captured'
 
-            log_and_beep('Finished processing images. Image interpretations:\n{}'.format(pformat(dict(mode_interpretation))), None)
+            log_and_beep(
+                'Finished processing images. Image interpretations:\n{}'.format(pformat(dict(mode_interpretation))),
+                1000)
 
             # writing to local file
             write_to_file(stats_file, mode_interpretation)
