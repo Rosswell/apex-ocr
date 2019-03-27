@@ -55,11 +55,11 @@ def process_squad_placed(text_list):
     return squad_placed_list
 
 
-def preprocess_image(img):
+def preprocess_image(img, blur_amount):
     img = img.convert('RGB')
     opencv_img = cv2.cvtColor(numpy.array(img), cv2.COLOR_RGB2GRAY)
     opencv_thr_img = cv2.threshold(opencv_img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
-    opencv_blur_img = cv2.GaussianBlur(opencv_thr_img, (3, 3), 0)
+    opencv_blur_img = cv2.GaussianBlur(opencv_thr_img, (blur_amount, blur_amount), 0)
     return opencv_blur_img
 
 
@@ -104,7 +104,7 @@ if __name__ == '__main__':
     print('Watching screen...')
     while True:
         # continuously grab screenshots and interpret them to identify the match summary screen
-        img = preprocess_image(ImageGrab.grab(bbox=mon))
+        img = preprocess_image(ImageGrab.grab(bbox=mon), 3)
         text = pytesseract.image_to_string(img, config=tesseract_config)
         text = text.replace("\n", "").replace(" ", "").lower()
 
@@ -121,8 +121,9 @@ if __name__ == '__main__':
 
             log_and_beep('Finished taking backup screengrabs. Processing images -> text', 1500)
             # OCR for all the images captured, then assign interpretation to the associated stat
-            for image in dup_images:
-                img = preprocess_image(image)
+            blurs = [1,1,1,1,3,3,3,3,5,5,5,5,7,7,7,7,9,9,9,9]
+            for image, blur_amount in zip(dup_images, blurs):
+                img = preprocess_image(image, blur_amount)
                 text = pytesseract.image_to_string(img, config=tesseract_config)
                 text = text.replace("\n", "").replace(" ", "").lower()
 
